@@ -70,6 +70,12 @@ class Shims(TempDir):
         result = subprocess.run([str(self.tmp / "bin/tool"), "a b", "c"], capture_output=True, text=True)
         self.assertEqual(f"{launcher}|a b|c|", result.stdout)
 
+    def test_a_shim_lands_in_a_bin_dir_a_fresh_home_does_not_have_yet(self):
+        launcher = self.echo_launcher()
+        Shim("put tool on PATH", self.tmp / "home/.local/bin/tool", launcher).apply()
+        result = subprocess.run([str(self.tmp / "home/.local/bin/tool")], capture_output=True, text=True)
+        self.assertEqual(f"{launcher}|", result.stdout)
+
     def test_a_second_install_rewrites_the_shim(self):
         launcher = self.echo_launcher()
         self.script("bin/tool", "#!/bin/sh\necho stale\n")
@@ -133,6 +139,18 @@ class Execution(TempDir):
         with captured_fd1() as captured:
             execute([Run("check", python("print('no' + 'ise')"), quiet=True)])
         self.assertNotIn("noise", captured[0])
+
+    def test_each_step_is_logged_before_its_command_prints(self):
+        steps = [Run("first step", python("print('out' + 'put one')")), Run("second step", python("print('out' + 'put two')"))]
+        with captured_fd1() as captured:
+            # Block-buffered, as stdout is when the install is piped to tee or a CI log.
+            piped = io.TextIOWrapper(io.BufferedWriter(io.FileIO(1, "w", closefd=False)))
+            with contextlib.redirect_stdout(piped):
+                install.execute(steps, dry_run=False)
+            piped.flush()
+        text = captured[0]
+        order = [text.index(marker) for marker in ("first step", "output one", "second step", "output two")]
+        self.assertEqual(sorted(order), order)
 
     def test_a_loud_run_shows_what_the_command_prints(self):
         with captured_fd1() as captured:

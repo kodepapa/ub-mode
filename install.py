@@ -159,6 +159,8 @@ class Note:
 
 
 def parse_options(argv: list[str] | None, home: Path) -> Options:
+    tools_dir = home / ".local/share" / SKILL
+    bin_dir = home / ".local/bin"
     parser = argparse.ArgumentParser(
         prog="install.py",
         description="Install the ub-mode skill and its companion tools.",
@@ -174,14 +176,14 @@ def parse_options(argv: list[str] | None, home: Path) -> Options:
     parser.add_argument(
         "--tools-dir",
         type=Path,
-        default=home / ".local/share" / SKILL,
+        default=tools_dir,
         metavar="DIR",
         help="where the companions are checked out (default: ~/.local/share/ub-mode)",
     )
     parser.add_argument(
         "--bin-dir",
         type=Path,
-        default=home / ".local/bin",
+        default=bin_dir,
         metavar="DIR",
         help="where their commands go (default: ~/.local/bin)",
     )
