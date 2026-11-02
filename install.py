@@ -26,7 +26,11 @@ Glossary
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
+import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -84,12 +88,33 @@ class World:
     commands: frozenset[str]
     exists: Callable[[Path], bool]
 
+    @staticmethod
+    def observe(script: str) -> World:
+        here = Path(script).resolve().parent
+        found = Path(script).is_file() and (here / "SKILL.md").is_file()
+        needed = {"git"}.union(*(c.needs for c in COMPANIONS))
+        return World(
+            home=Path.home(),
+            source=here if found else None,
+            python=sys.executable,
+            version=tuple(sys.version_info[:2]),
+            path=tuple(os.environ.get("PATH", "").split(os.pathsep)),
+            commands=frozenset(c for c in needed if shutil.which(c)),
+            exists=Path.exists,
+        )
+
 
 @dataclass(frozen=True)
 class Run:
     why: str
     argv: tuple[str, ...]
     quiet: bool = False
+
+    def show(self) -> str:
+        return f"- {self.why}\n    $ {shlex.join(self.argv)}"
+
+    def apply(self) -> None:
+        subprocess.run(self.argv, check=True, stdout=subprocess.DEVNULL if self.quiet else None)
 
 
 @dataclass(frozen=True)
@@ -98,6 +123,13 @@ class Copy:
     source: Path
     target: Path
 
+    def show(self) -> str:
+        return f"- {self.why}\n    $ {shlex.join(('cp', str(self.source), str(self.target)))}"
+
+    def apply(self) -> None:
+        self.target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.source, self.target)
+
 
 @dataclass(frozen=True)
 class Shim:
@@ -105,10 +137,25 @@ class Shim:
     target: Path
     launcher: Path
 
+    def show(self) -> str:
+        return f"- {self.why}\n    {self.target} -> {self.launcher}"
+
+    def apply(self) -> None:
+        # Exec the launcher by its own path: launchers find their checkout from $0.
+        self.target.parent.mkdir(parents=True, exist_ok=True)
+        self.target.write_text(f'#!/bin/sh\nexec {shlex.quote(str(self.launcher))} "$@"\n')
+        self.target.chmod(0o755)
+
 
 @dataclass(frozen=True)
 class Note:
     text: str
+
+    def show(self) -> str:
+        return f"! {self.text}"
+
+    def apply(self) -> None:
+        pass
 
 
 def parse_options(argv: list[str] | None, home: Path) -> Options:
@@ -124,8 +171,20 @@ def parse_options(argv: list[str] | None, home: Path) -> Options:
         metavar="DIR",
         help="a harness skills directory; repeatable (default: every detected harness)",
     )
-    parser.add_argument("--tools-dir", type=Path, default=home / ".local/share" / SKILL, metavar="DIR")
-    parser.add_argument("--bin-dir", type=Path, default=home / ".local/bin", metavar="DIR")
+    parser.add_argument(
+        "--tools-dir",
+        type=Path,
+        default=home / ".local/share" / SKILL,
+        metavar="DIR",
+        help="where the companions are checked out (default: ~/.local/share/ub-mode)",
+    )
+    parser.add_argument(
+        "--bin-dir",
+        type=Path,
+        default=home / ".local/bin",
+        metavar="DIR",
+        help="where their commands go (default: ~/.local/bin)",
+    )
     parser.add_argument("--git-base", default=GITHUB, metavar="URL", help="where the repositories live")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and change nothing")
     args = parser.parse_args(argv)
@@ -212,3 +271,34 @@ def _notes(options: Options, world: World) -> list:
         if missing:
             notes.append(Note(f"{companion.command} needs {', '.join(missing)} before it can run."))
     return notes
+
+
+def execute(steps: list, dry_run: bool) -> int:
+    for step in steps:
+        print(step.show(), flush=True)
+        if dry_run:
+            continue
+        try:
+            step.apply()
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(f"install.py: could not {step.why}: {error}", file=sys.stderr)
+            return 1
+    return 0
+
+
+def main(argv: list[str] | None = None, world: World | None = None) -> int:
+    world = world or World.observe(__file__)
+    options = parse_options(argv, world.home)
+    problems = blockers(world)
+    for problem in problems:
+        print(f"install.py: {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    code = execute(plan(options, world), options.dry_run)
+    if code == 0:
+        print("Dry run: nothing was changed." if options.dry_run else "ub-mode is installed. Invoke /ub-mode in your agent.")
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
