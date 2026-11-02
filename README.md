@@ -17,4 +17,37 @@
 
 ## Installation
 
-Copy `SKILL.md` into your agent's skills directory as `ub-mode/SKILL.md` (for example `~/.grok/skills/ub-mode/SKILL.md`, `~/.claude/skills/ub-mode/SKILL.md`, or `~/.cursor/skills/ub-mode/SKILL.md`), then invoke `/ub-mode`.
+One command installs the skill into every agent harness it finds, and installs the companion tools:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/unclebob/ub-mode/master/install.py | python3 -
+```
+
+Or from a checkout:
+
+```bash
+git clone https://github.com/unclebob/ub-mode && python3 ub-mode/install.py
+```
+
+Then invoke `/ub-mode`. The installer needs Python 3.11+ and git, as the companions do, on macOS or Linux (on Windows, use WSL). It prints each step and the reason for it:
+
+- It copies `SKILL.md` to `<config>/skills/ub-mode/SKILL.md` for each harness whose config directory exists: `~/.agents`, `~/.claude`, `~/.codex`, `~/.cursor`, `~/.gemini`, `~/.grok`, and `~/.config/opencode`. If there is none, it uses `~/.agents/skills`.
+- It clones crapper, dryer, mutator, and uml-viewer side by side into `~/.local/share/ub-mode`, because mutator imports `../crapper`. Each Python tool gets its own virtualenv and is run once to prove it works.
+- It puts `crapper`, `dryer`, `mutator`, and `get-uml-viewer` in `~/.local/bin`, and says so if that directory is not on `PATH`. uml-viewer also needs the Clojure CLI, Java 21+, and zsh, and the installer names any that are missing.
+
+Run it again to update; from a checkout, `git pull` first. Nothing else in those directories is touched.
+
+```bash
+python3 install.py --dry-run                        # print the plan, change nothing
+python3 install.py --skills-dir .claude/skills      # a project, or any other harness; repeatable
+python3 install.py --tools-dir DIR --bin-dir DIR    # put the companions somewhere else
+```
+
+To remove ub-mode, delete `~/.local/share/ub-mode`, the four commands in `~/.local/bin`, and each `skills/ub-mode` directory.
+
+## Development
+
+```bash
+python3 -m unittest discover -s .
+crapper && dryer && mutator install.py
+```
